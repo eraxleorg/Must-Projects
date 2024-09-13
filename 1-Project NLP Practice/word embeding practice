@@ -1,0 +1,86 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# Sample tiny corpus
+corpus = [
+    'he likes cat',
+    'she likes dog',
+    'he hates dog',
+    'she hates cat',
+]
+
+# Preprocessing: tokenizing and creating a vocabulary
+def preprocess_corpus(corpus):
+    tokenized_corpus = [sentence.split() for sentence in corpus]
+    vocabulary = set(word for sentence in tokenized_corpus for word in sentence)
+    word_to_ix = {word: i for i, word in enumerate(vocabulary)}
+    ix_to_word = {i: word for i, word in enumerate(vocabulary)}
+    return tokenized_corpus, word_to_ix, ix_to_word
+
+# Create skip-gram pairs
+def create_skipgram_pairs(tokenized_corpus, window_size=2):
+    pairs = []
+    for sentence in tokenized_corpus:
+        for i, target_word in enumerate(sentence):
+            context_words = sentence[max(0, i - window_size): i] + sentence[i + 1: i + window_size + 1]
+            for context_word in context_words:
+                pairs.append((target_word, context_word))
+    return pairs
+
+# Prepare the dataset
+tokenized_corpus, word_to_ix, ix_to_word = preprocess_corpus(corpus)
+pairs = create_skipgram_pairs(tokenized_corpus)
+vocab_size = len(word_to_ix)
+
+# Word2Vec model definition
+class Word2Vec(nn.Module):
+    def __init__(self, vocab_size, embedding_dim):
+        super(Word2Vec, self).__init__()
+        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
+    
+    def forward(self, target_word_idx, context_word_idx):
+        target_embedding = self.embeddings(target_word_idx)
+        context_embedding = self.embeddings(context_word_idx)
+        return torch.sum(target_embedding * context_embedding, dim=1)
+
+# Hyperparameters
+embedding_dim = 5  # Small dimension for simplicity
+learning_rate = 0.01
+num_epochs = 50
+
+# Model, loss function, and optimizer
+model = Word2Vec(vocab_size, embedding_dim)
+optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+loss_fn = nn.CrossEntropyLoss()
+
+# Training loop
+for epoch in range(num_epochs):
+    total_loss = 0
+    for target_word, context_word in pairs:
+        target_word_idx = torch.tensor([word_to_ix[target_word]], dtype=torch.long)
+        context_word_idx = torch.tensor([word_to_ix[context_word]], dtype=torch.long)
+        
+        optimizer.zero_grad()
+        output = model(target_word_idx, context_word_idx)
+        loss = -output.mean()  # Negative Sampling approximation
+        
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    
+    if (epoch + 1) % 10 == 0:
+        print(f'Epoch {epoch + 1}, Loss: {total_loss:.4f}')
+
+# Extract the learned word embeddings (features)
+word_embeddings = model.embeddings.weight.data.numpy()
+
+print("\nWord Embeddings (Features):\n")
+for word, idx in word_to_ix.items():
+    print(f'{word}: {word_embeddings[idx]}')
+
+# Test with a word, for example 'cat'
+test_word = 'cat'
+test_word_idx = word_to_ix[test_word]
+print(f"\nLearned features for the word '{test_word}': {word_embeddings[test_word_idx]}")
